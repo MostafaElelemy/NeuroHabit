@@ -1,0 +1,79 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: neurohabit_postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-neurohabit}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-neurohabit123}
+      POSTGRES_DB: ${POSTGRES_DB:-neurohabit}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U neurohabit"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - neurohabit_network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: neurohabit_backend
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./backend:/app
+      - backend_models:/app/models
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://neurohabit:neurohabit123@postgres:5432/neurohabit}
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
+      ALGORITHM: ${ALGORITHM:-HS256}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:8000/auth/callback}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      DEBUG: ${DEBUG:-true}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost:3000}
+      MODEL_PATH: ${MODEL_PATH:-/app/models/habit_model.txt}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - neurohabit_network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: neurohabit_frontend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+      VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:-}
+    depends_on:
+      - backend
+    networks:
+      - neurohabit_network
+    stdin_open: true
+    tty: true
+
+volumes:
+  postgres_data:
+  backend_models:
+
+networks:
+  neurohabit_network:
+    driver: bridge
